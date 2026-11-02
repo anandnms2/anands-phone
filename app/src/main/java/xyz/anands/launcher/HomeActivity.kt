@@ -129,11 +129,12 @@ class HomeActivity : Activity() {
     private lateinit var dots: LinearLayout
     private lateinit var widgetHost: AppWidgetHost
     private lateinit var widgetMgr: AppWidgetManager
-    private val pageCols = ArrayList<LinearLayout>()
+    private val pageCols = ArrayList<LinearLayout>() // index = page
+    private lateinit var homeScroll: ScrollView
     private val widgets = ArrayList<Pair<Int, Int>>() // page, widget id
     private val widgetFrames = HashMap<Int, View>()
     private var pendingId = -1
-    private var pendingPage = 1
+    private var pendingPage = 0
     private lateinit var rootLayer: FrameLayout
     private var introPending = false
     private var introShowing = false
@@ -151,7 +152,7 @@ class HomeActivity : Activity() {
                 if (e1 == null) return false
                 val dy = e2.y - e1.y
                 val dx = e2.x - e1.x
-                if (drawerLayer.visibility != View.VISIBLE && pager.currentPage() == 0 && dy < -dp(80) && abs(dy) > abs(dx) * 1.5f) {
+                if (drawerLayer.visibility != View.VISIBLE && pager.currentPage() == 0 && !homeScroll.canScrollVertically(1) && dy < -dp(80) && abs(dy) > abs(dx) * 1.5f) {
                     openDrawer(false)
                     return true
                 }
@@ -330,7 +331,30 @@ class HomeActivity : Activity() {
             repeat(4 - chunk.size) { row.addView(View(this), LinearLayout.LayoutParams(0, 1, 1f)) }
             col.addView(row, linear(top = dp(24)))
         }
-        return col
+        col.addView(addWidgetTile(0), linear(h = dp(64), top = dp(28)))
+        col.setOnLongClickListener {
+            pickWidget(0)
+            true
+        }
+        pageCols.add(col)
+        homeScroll = ScrollView(this).apply {
+            isFillViewport = true
+            overScrollMode = View.OVER_SCROLL_NEVER
+            isVerticalScrollBarEnabled = false
+            addView(col, FrameLayout.LayoutParams(MATCH, WRAP))
+        }
+        return homeScroll
+    }
+
+    /** Dashed "+ Add widget" tile. Tap it to open the widget picker for [page]. */
+    private fun addWidgetTile(page: Int): View = label("+  Add widget", 15f, LABEL).apply {
+        gravity = Gravity.CENTER
+        background = GradientDrawable().apply {
+            setColor(Color.parseColor("#33000000"))
+            cornerRadius = dp(28).toFloat()
+            setStroke(dp(1), Color.parseColor("#80FFFFFF"), dp(6).toFloat(), dp(4).toFloat())
+        }
+        setOnClickListener { pickWidget(page) }
     }
 
     // ------------------------------------------------------------ widget pages
@@ -345,16 +369,7 @@ class HomeActivity : Activity() {
             }
         }
         col.addView(label("Page ${page + 1} \u00b7 Widgets", 13f, LABEL))
-        val add = label("+  Add widget", 15f, LABEL).apply {
-            gravity = Gravity.CENTER
-            background = GradientDrawable().apply {
-                setColor(Color.parseColor("#33000000"))
-                cornerRadius = dp(28).toFloat()
-                setStroke(dp(1), Color.parseColor("#80FFFFFF"), dp(6).toFloat(), dp(4).toFloat())
-            }
-            setOnClickListener { pickWidget(page) }
-        }
-        col.addView(add, linear(h = dp(64), top = dp(12)))
+        col.addView(addWidgetTile(page), linear(h = dp(64), top = dp(12)))
         pageCols.add(col)
         return ScrollView(this).apply {
             isFillViewport = true
@@ -433,7 +448,7 @@ class HomeActivity : Activity() {
 
     private fun addWidgetView(page: Int, id: Int): Boolean {
         val info = widgetMgr.getAppWidgetInfo(id) ?: return false
-        val col = pageCols.getOrNull(page - 1) ?: return false
+        val col = pageCols.getOrNull(page) ?: return false
         val frame = LongPressFrame(this) { confirmRemove(id) }
         val host = widgetHost.createView(this, id, info)
         val wDp = ((resources.displayMetrics.widthPixels - dp(48)) / resources.displayMetrics.density).toInt()
