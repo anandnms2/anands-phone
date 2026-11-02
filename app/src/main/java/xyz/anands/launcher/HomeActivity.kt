@@ -3,6 +3,8 @@ package xyz.anands.launcher
 import android.app.Activity
 import android.app.AlertDialog
 import android.app.KeyguardManager
+import android.appwidget.AppWidgetHost
+import android.appwidget.AppWidgetManager
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
@@ -34,6 +36,7 @@ import android.widget.BaseAdapter
 import android.widget.EditText
 import android.widget.FrameLayout
 import android.widget.GridView
+import android.widget.ScrollView
 import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.TextView
@@ -43,16 +46,18 @@ import java.util.Calendar
 import java.util.Date
 import java.util.Locale
 import kotlin.math.abs
+import kotlin.math.max
+import kotlin.math.min
 
 // ---- Anands palette ----
 private val ORANGE = Color.parseColor("#F68B1F")
 private val INK = Color.parseColor("#0B0B0C")
-private val PANEL = Color.parseColor("#17171A")
+private val PANEL = Color.parseColor("#B317171A")
 private val LINE = Color.parseColor("#2A2A2D")
 private val TILE = Color.parseColor("#1A1A1C")
 private val GREY = Color.parseColor("#A1A1A6")
 private val LABEL = Color.parseColor("#E4E4E7")
-private val SCRIM = INK
+private val SCRIM = Color.parseColor("#E60B0B0C")
 private val TILE_ORANGE = IconTheme.TILE
 private val WHITE = Color.WHITE
 
@@ -60,6 +65,11 @@ private const val MATCH = ViewGroup.LayoutParams.MATCH_PARENT
 private const val WRAP = ViewGroup.LayoutParams.WRAP_CONTENT
 
 private const val OWNER_NAME = "Anand"
+
+private const val WIDGET_HOST_ID = 1024
+private const val REQ_BIND = 11
+private const val REQ_CONFIG = 12
+private const val WIDGET_PAGES = 2 // pages after the home page
 
 // ---- Your web apps. Edit this list to add or change shortcuts. ----
 private class Fav(val name: String, val url: String, val glyph: Int)
@@ -115,7 +125,15 @@ class HomeActivity : Activity() {
     private val allApps = ArrayList<AppEntry>()
     private val shown = ArrayList<AppEntry>()
     private val iconCache = HashMap<String, Drawable>()
-    private var themed = true
+    private lateinit var pager: SnapPager
+    private lateinit var dots: LinearLayout
+    private lateinit var widgetHost: AppWidgetHost
+    private lateinit var widgetMgr: AppWidgetManager
+    private val pageCols = ArrayList<LinearLayout>()
+    private val widgets = ArrayList<Pair<Int, Int>>() // page, widget id
+    private val widgetFrames = HashMap<Int, View>()
+    private var pendingId = -1
+    private var pendingPage = 1
     private lateinit var rootLayer: FrameLayout
     private var introPending = false
     private var introShowing = false
@@ -125,12 +143,15 @@ class HomeActivity : Activity() {
         window.statusBarColor = Color.TRANSPARENT
         window.navigationBarColor = Color.TRANSPARENT
 
+        widgetMgr = AppWidgetManager.getInstance(this)
+        widgetHost = AppWidgetHost(this, WIDGET_HOST_ID)
+
         swipe = GestureDetector(this, object : GestureDetector.SimpleOnGestureListener() {
             override fun onFling(e1: MotionEvent?, e2: MotionEvent, velocityX: Float, velocityY: Float): Boolean {
                 if (e1 == null) return false
                 val dy = e2.y - e1.y
                 val dx = e2.x - e1.x
-                if (drawerLayer.visibility != View.VISIBLE && dy < -dp(80) && abs(dy) > abs(dx) * 1.5f) {
+                if (drawerLayer.visibility != View.VISIBLE && pager.currentPage() == 0 && dy < -dp(80) && abs(dy) > abs(dx) * 1.5f) {
                     openDrawer(false)
                     return true
                 }
@@ -139,6 +160,11 @@ class HomeActivity : Activity() {
         })
 
         val root = FrameLayout(this)
+        // Soft darkening over the wallpaper so text stays readable but the wallpaper stays visible.
+        root.background = GradientDrawable(
+            GradientDrawable.Orientation.TOP_BOTTOM,
+            intArrayOf(Color.parseColor("#4D000000"), Color.parseColor("#80000000")),
+        )
         rootLayer = root
         homeLayer = buildHome()
         drawerLayer = buildDrawer()
@@ -147,6 +173,17 @@ class HomeActivity : Activity() {
         root.addView(drawerLayer, FrameLayout.LayoutParams(MATCH, MATCH))
         setContentView(root)
         introPending = bootChanged()
+        restoreWidgets()
+    }
+
+    override fun onStart() {
+        super.onStart()
+        try { widgetHost.startListening() } catch (e: Exception) { }
+    }
+
+    override fun onStop() {
+        super.onStop()
+        try { widgetHost.stopListening() } catch (e: Exception) { }
     }
 
     override fun onResume() {
@@ -161,13 +198,15 @@ class HomeActivity : Activity() {
             drawerLayer.visibility == View.VISIBLE
         ) {
             closeDrawer()
+        } else if (intent.action == Intent.ACTION_MAIN && intent.hasCategory(Intent.CATEGORY_HOME)) {
+            pager.goTo(0)
         }
     }
 
     @Deprecated("Deprecated in Java")
     override fun onBackPressed() {
         // A launcher never exits. Back only closes the drawer.
-        if (drawerLayer.visibility == View.VISIBLE) closeDrawer()
+        if (drawerLayer.visibility == View.VISIBLE) closeDrawer() else if (pager.currentPage() > 0) pager.goTo(0)
     }
 
     override fun onWindowFocusChanged(hasFocus: Boolean) {
@@ -206,10 +245,50 @@ class HomeActivity : Activity() {
     // ------------------------------------------------------------ home
 
     private fun buildHome(): View {
+        val screenW = resources.displayMetrics.widthPixels
+        val root = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(0, dp(36), 0, dp(28))
+        }
+
+        pager = SnapPager(this)
+        val strip = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+        strip.addView(buildHomePage(), LinearLayout.LayoutParams(screenW, MATCH))
+        for (n in 1..WIDGET_PAGES) strip.addView(buildWidgetPage(n), LinearLayout.LayoutParams(screenW, MATCH))
+        pager.addView(strip, FrameLayout.LayoutParams(WRAP, MATCH))
+        pager.onPage = { updateDots(it) }
+        root.addView(pager, LinearLayout.LayoutParams(MATCH, 0, 1f))
+
+        dots = LinearLayout(this).apply { gravity = Gravity.CENTER }
+        root.addView(dots, LinearLayout.LayoutParams(MATCH, WRAP).apply { topMargin = dp(8); bottomMargin = dp(16) })
+        updateDots(0)
+
+        root.addView(
+            buildDock(),
+            LinearLayout.LayoutParams(MATCH, WRAP).apply { marginStart = dp(24); marginEnd = dp(24) },
+        )
+        return root
+    }
+
+    private fun updateDots(active: Int) {
+        dots.removeAllViews()
+        for (n in 0..WIDGET_PAGES) {
+            val dot = View(this).apply {
+                background = rounded(if (n == active) ORANGE else Color.parseColor("#66FFFFFF"), 4)
+            }
+            dots.addView(
+                dot,
+                LinearLayout.LayoutParams(dp(if (n == active) 22 else 8), dp(8)).apply {
+                    marginStart = dp(4); marginEnd = dp(4)
+                },
+            )
+        }
+    }
+
+    private fun buildHomePage(): View {
         val col = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setBackgroundColor(INK)
-            setPadding(dp(24), dp(36), dp(24), dp(28))
+            setPadding(dp(24), 0, dp(24), 0)
         }
 
         val header = LinearLayout(this).apply {
@@ -223,7 +302,7 @@ class HomeActivity : Activity() {
         header.setOnClickListener { playIntro() }
         col.addView(header)
 
-        dateView = label("", 14f, GREY)
+        dateView = label("", 14f, LABEL)
         greetingView = label("", 34f, WHITE, bold = true)
         col.addView(dateView, linear(top = dp(56)))
         col.addView(greetingView, linear(top = dp(6)))
@@ -251,10 +330,146 @@ class HomeActivity : Activity() {
             repeat(4 - chunk.size) { row.addView(View(this), LinearLayout.LayoutParams(0, 1, 1f)) }
             col.addView(row, linear(top = dp(24)))
         }
-
-        col.addView(View(this), LinearLayout.LayoutParams(MATCH, 0, 1f))
-        col.addView(buildDock())
         return col
+    }
+
+    // ------------------------------------------------------------ widget pages
+
+    private fun buildWidgetPage(page: Int): View {
+        val col = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(24), dp(4), dp(24), dp(16))
+            setOnLongClickListener {
+                pickWidget(page)
+                true
+            }
+        }
+        col.addView(label("Page ${page + 1} \u00b7 Widgets", 13f, LABEL))
+        val add = label("+  Add widget", 15f, LABEL).apply {
+            gravity = Gravity.CENTER
+            background = GradientDrawable().apply {
+                setColor(Color.parseColor("#33000000"))
+                cornerRadius = dp(28).toFloat()
+                setStroke(dp(1), Color.parseColor("#80FFFFFF"), dp(6).toFloat(), dp(4).toFloat())
+            }
+            setOnClickListener { pickWidget(page) }
+        }
+        col.addView(add, linear(h = dp(64), top = dp(12)))
+        pageCols.add(col)
+        return ScrollView(this).apply {
+            isFillViewport = true
+            overScrollMode = View.OVER_SCROLL_NEVER
+            isVerticalScrollBarEnabled = false
+            addView(col, FrameLayout.LayoutParams(MATCH, WRAP))
+        }
+    }
+
+    private fun pickWidget(page: Int) {
+        val providers = widgetMgr.installedProviders.sortedBy { it.loadLabel(packageManager).lowercase(Locale.getDefault()) }
+        if (providers.isEmpty()) {
+            Toast.makeText(this, "No widgets installed", Toast.LENGTH_SHORT).show()
+            return
+        }
+        AlertDialog.Builder(this)
+            .setTitle("Add widget")
+            .setItems(providers.map { it.loadLabel(packageManager) }.toTypedArray()) { _, which ->
+                val info = providers[which]
+                pendingPage = page
+                pendingId = widgetHost.allocateAppWidgetId()
+                val ok = try {
+                    widgetMgr.bindAppWidgetIdIfAllowed(pendingId, info.provider)
+                } catch (e: Exception) {
+                    false
+                }
+                if (ok) {
+                    afterBind(pendingId)
+                } else {
+                    val ask = Intent(AppWidgetManager.ACTION_APPWIDGET_BIND)
+                        .putExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, pendingId)
+                        .putExtra(AppWidgetManager.EXTRA_APPWIDGET_PROVIDER, info.provider)
+                    try {
+                        @Suppress("DEPRECATION")
+                        startActivityForResult(ask, REQ_BIND)
+                    } catch (e: Exception) {
+                        widgetHost.deleteAppWidgetId(pendingId)
+                        Toast.makeText(this, "Can't add that widget", Toast.LENGTH_SHORT).show()
+                    }
+                }
+            }
+            .show()
+    }
+
+    private fun afterBind(id: Int) {
+        val info = widgetMgr.getAppWidgetInfo(id)
+        if (info?.configure != null) {
+            try {
+                @Suppress("DEPRECATION")
+                widgetHost.startAppWidgetConfigureActivityForResult(this, id, 0, REQ_CONFIG, null)
+                return
+            } catch (e: Exception) {
+                // fall through and place it unconfigured
+            }
+        }
+        placeWidget(id)
+    }
+
+    @Deprecated("Deprecated in Java")
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        super.onActivityResult(requestCode, resultCode, data)
+        val id = data?.getIntExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, pendingId) ?: pendingId
+        when (requestCode) {
+            REQ_BIND -> if (resultCode == RESULT_OK) afterBind(id) else widgetHost.deleteAppWidgetId(id)
+            REQ_CONFIG -> if (resultCode == RESULT_OK) placeWidget(id) else widgetHost.deleteAppWidgetId(id)
+        }
+    }
+
+    private fun placeWidget(id: Int) {
+        if (addWidgetView(pendingPage, id)) {
+            widgets.add(pendingPage to id)
+            saveWidgets()
+            pager.post { pager.goTo(pendingPage) }
+        }
+    }
+
+    private fun addWidgetView(page: Int, id: Int): Boolean {
+        val info = widgetMgr.getAppWidgetInfo(id) ?: return false
+        val col = pageCols.getOrNull(page - 1) ?: return false
+        val frame = LongPressFrame(this) { confirmRemove(id) }
+        val host = widgetHost.createView(this, id, info)
+        val wDp = ((resources.displayMetrics.widthPixels - dp(48)) / resources.displayMetrics.density).toInt()
+        val hPx = min(max(info.minHeight, dp(110)), dp(420))
+        val hDp = (hPx / resources.displayMetrics.density).toInt()
+        host.updateAppWidgetSize(Bundle(), wDp, hDp, wDp, hDp)
+        frame.addView(host, FrameLayout.LayoutParams(MATCH, MATCH))
+        col.addView(frame, col.childCount - 1, linear(h = hPx, top = dp(12)))
+        widgetFrames[id] = frame
+        return true
+    }
+
+    private fun confirmRemove(id: Int) {
+        AlertDialog.Builder(this)
+            .setTitle("Widget")
+            .setItems(arrayOf("Remove")) { _, _ ->
+                widgetFrames.remove(id)?.let { (it.parent as? ViewGroup)?.removeView(it) }
+                widgetHost.deleteAppWidgetId(id)
+                widgets.removeAll { it.second == id }
+                saveWidgets()
+            }
+            .show()
+    }
+
+    private fun saveWidgets() {
+        getSharedPreferences("anands", Context.MODE_PRIVATE).edit()
+            .putString("widgets", widgets.joinToString(",") { "${it.first}:${it.second}" }).apply()
+    }
+
+    private fun restoreWidgets() {
+        val saved = getSharedPreferences("anands", Context.MODE_PRIVATE).getString("widgets", "").orEmpty()
+        for (part in saved.split(",").filter { it.contains(":") }) {
+            val (page, id) = part.split(":").map { it.toInt() }
+            if (addWidgetView(page, id)) widgets.add(page to id) else widgetHost.deleteAppWidgetId(id)
+        }
+        saveWidgets()
     }
 
     private fun buildDock(): View {
@@ -317,13 +532,7 @@ class HomeActivity : Activity() {
             LinearLayout.LayoutParams(dp(32), dp(32)),
         )
         top.addView(
-            label("All apps", 20f, WHITE, bold = true).apply {
-                // Long-press the title to flip between Anands icons and the original ones.
-                setOnLongClickListener {
-                    toggleIconStyle()
-                    true
-                }
-            },
+            label("All apps", 20f, WHITE, bold = true),
             LinearLayout.LayoutParams(0, WRAP, 1f).apply { marginStart = dp(10) },
         )
         countView = label("", 13f, GREY)
@@ -485,17 +694,9 @@ class HomeActivity : Activity() {
 
     // ------------------------------------------------------------ helpers
 
-    private fun iconFor(key: String, raw: () -> Drawable): Drawable {
-        if (!themed) return raw()
-        return iconCache.getOrPut(key) { IconTheme.restyle(this, raw()) }
-    }
-
-    private fun toggleIconStyle() {
-        themed = !themed
-        iconCache.clear()
-        loadApps()
-        Toast.makeText(this, if (themed) "Anands icons" else "Original icons", Toast.LENGTH_SHORT).show()
-    }
+    /** Strict theming: every icon goes through the Anands tile, no opt-out. */
+    private fun iconFor(key: String, raw: () -> Drawable): Drawable =
+        iconCache.getOrPut(key) { IconTheme.restyle(this, raw()) }
 
     private fun startSafely(intent: Intent) {
         try {

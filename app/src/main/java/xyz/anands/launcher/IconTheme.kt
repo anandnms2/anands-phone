@@ -12,27 +12,33 @@ import android.graphics.drawable.Drawable
 import android.os.Build
 
 /**
- * Anands icon style: orange tile, white glyph.
+ * Strict Anands icons: EVERY app sits on an orange rounded tile.
  *
- * Only apps that ship a real one-colour (monochrome) layer get restyled, because that layer
- * is a clean glyph. Every other app keeps its own icon untouched, so nothing ends up as a
- * broken blob.
+ * - App ships a one-colour (monochrome) layer -> that layer, forced white.
+ * - Any other app -> its own full icon, inset on the tile. Never silhouetted, so it can't break.
  */
 object IconTheme {
     val TILE: Int = Color.parseColor("#E8710A")
     private const val SIZE = 128
 
-    fun restyle(context: Context, src: Drawable): Drawable {
-        if (Build.VERSION.SDK_INT < 33 || src !is AdaptiveIconDrawable) return src
-        val mono = src.monochrome ?: return src
-        return try {
-            val out = Bitmap.createBitmap(SIZE, SIZE, Bitmap.Config.ARGB_8888)
-            val canvas = Canvas(out)
-            val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = TILE }
-            val radius = SIZE * 0.30f
-            canvas.drawRoundRect(RectF(0f, 0f, SIZE.toFloat(), SIZE.toFloat()), radius, radius, paint)
+    fun restyle(context: Context, src: Drawable): Drawable =
+        try {
+            BitmapDrawable(context.resources, build(src))
+        } catch (e: Exception) {
+            src
+        }
 
-            // Glyph layer, forced white, kept inside the tile with some air around it.
+    private fun build(src: Drawable): Bitmap {
+        val out = Bitmap.createBitmap(SIZE, SIZE, Bitmap.Config.ARGB_8888)
+        val canvas = Canvas(out)
+        val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = TILE }
+        val radius = SIZE * 0.30f
+        canvas.drawRoundRect(RectF(0f, 0f, SIZE.toFloat(), SIZE.toFloat()), radius, radius, paint)
+
+        val mono: Drawable? =
+            if (Build.VERSION.SDK_INT >= 33 && src is AdaptiveIconDrawable) src.monochrome else null
+
+        if (mono != null) {
             val glyph = Bitmap.createBitmap(SIZE, SIZE, Bitmap.Config.ARGB_8888)
             val pad = -SIZE / 40
             mono.setBounds(pad, pad, SIZE - pad, SIZE - pad)
@@ -42,9 +48,11 @@ object IconTheme {
             for (i in px.indices) px[i] = (px[i] and -0x1000000) or 0x00FFFFFF
             glyph.setPixels(px, 0, SIZE, 0, 0, SIZE, SIZE)
             canvas.drawBitmap(glyph, 0f, 0f, null)
-            BitmapDrawable(context.resources, out)
-        } catch (e: Exception) {
-            src
+        } else {
+            val inset = (SIZE * 0.17f).toInt()
+            src.setBounds(inset, inset, SIZE - inset, SIZE - inset)
+            src.draw(canvas)
         }
+        return out
     }
 }
