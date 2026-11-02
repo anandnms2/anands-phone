@@ -161,11 +161,6 @@ class HomeActivity : Activity() {
         })
 
         val root = FrameLayout(this)
-        // Soft darkening over the wallpaper so text stays readable but the wallpaper stays visible.
-        root.background = GradientDrawable(
-            GradientDrawable.Orientation.TOP_BOTTOM,
-            intArrayOf(Color.parseColor("#99000000"), Color.parseColor("#D9000000")),
-        )
         rootLayer = root
         homeLayer = buildHome()
         drawerLayer = buildDrawer()
@@ -739,6 +734,8 @@ class HomeActivity : Activity() {
         it.textSize = size
         it.setTextColor(color)
         if (bold) it.typeface = Typeface.DEFAULT_BOLD
+        // Soft shadow keeps text readable on any wallpaper without tinting it.
+        it.setShadowLayer(dp(3).toFloat(), 0f, dp(1).toFloat(), Color.parseColor("#99000000"))
     }
 
     private fun rounded(fill: Int, radiusDp: Int, stroke: Int = 0) = GradientDrawable().apply {
