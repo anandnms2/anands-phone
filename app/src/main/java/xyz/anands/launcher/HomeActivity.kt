@@ -111,6 +111,8 @@ class HomeActivity : Activity() {
     private lateinit var swipe: GestureDetector
     private val allApps = ArrayList<AppEntry>()
     private val shown = ArrayList<AppEntry>()
+    private val iconCache = HashMap<String, Drawable>()
+    private var themed = true
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -254,7 +256,7 @@ class HomeActivity : Activity() {
         val info = packageManager.resolveActivity(intent, PackageManager.MATCH_DEFAULT_ONLY)
         val view: View = if (info != null) {
             ImageView(this).apply {
-                setImageDrawable(info.loadIcon(packageManager))
+                setImageDrawable(iconFor("dock/${info.activityInfo.packageName}") { info.loadIcon(packageManager) })
                 contentDescription = info.loadLabel(packageManager)
             }
         } else {
@@ -294,7 +296,13 @@ class HomeActivity : Activity() {
             LinearLayout.LayoutParams(dp(28), dp(28)),
         )
         top.addView(
-            label("All apps", 20f, WHITE, bold = true),
+            label("All apps", 20f, WHITE, bold = true).apply {
+                // Long-press the title to flip between Anands icons and the original ones.
+                setOnLongClickListener {
+                    toggleIconStyle()
+                    true
+                }
+            },
             LinearLayout.LayoutParams(0, WRAP, 1f).apply { marginStart = dp(10) },
         )
         countView = label("", 13f, GREY)
@@ -364,7 +372,7 @@ class HomeActivity : Activity() {
                     info.loadLabel(pm).toString(),
                     pkg,
                     ComponentName(pkg, info.activityInfo.name),
-                    info.loadIcon(pm),
+                    iconFor("$pkg/${info.activityInfo.name}") { info.loadIcon(pm) },
                 ),
             )
         }
@@ -455,6 +463,18 @@ class HomeActivity : Activity() {
     }
 
     // ------------------------------------------------------------ helpers
+
+    private fun iconFor(key: String, raw: () -> Drawable): Drawable {
+        if (!themed) return raw()
+        return iconCache.getOrPut(key) { IconTheme.restyle(this, raw()) }
+    }
+
+    private fun toggleIconStyle() {
+        themed = !themed
+        iconCache.clear()
+        loadApps()
+        Toast.makeText(this, if (themed) "Anands icons" else "Original icons", Toast.LENGTH_SHORT).show()
+    }
 
     private fun startSafely(intent: Intent) {
         try {
