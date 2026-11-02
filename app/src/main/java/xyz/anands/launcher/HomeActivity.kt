@@ -331,9 +331,9 @@ class HomeActivity : Activity() {
             repeat(4 - chunk.size) { row.addView(View(this), LinearLayout.LayoutParams(0, 1, 1f)) }
             col.addView(row, linear(top = dp(24)))
         }
-        col.addView(addWidgetTile(0), linear(h = dp(64), top = dp(28)))
         col.setOnLongClickListener {
-            pickWidget(0)
+            it.performHapticFeedback(android.view.HapticFeedbackConstants.LONG_PRESS)
+            showEditMenu(0)
             true
         }
         pageCols.add(col)
@@ -346,15 +346,20 @@ class HomeActivity : Activity() {
         return homeScroll
     }
 
-    /** Dashed "+ Add widget" tile. Tap it to open the widget picker for [page]. */
-    private fun addWidgetTile(page: Int): View = label("+  Add widget", 15f, LABEL).apply {
-        gravity = Gravity.CENTER
-        background = GradientDrawable().apply {
-            setColor(Color.parseColor("#33000000"))
-            cornerRadius = dp(28).toFloat()
-            setStroke(dp(1), Color.parseColor("#80FFFFFF"), dp(6).toFloat(), dp(4).toFloat())
-        }
-        setOnClickListener { pickWidget(page) }
+    /** Press and hold on empty space, like One UI: Widgets, Wallpaper, Home settings. */
+    private fun showEditMenu(page: Int) {
+        AlertDialog.Builder(this)
+            .setTitle("Home screen")
+            .setItems(arrayOf("Widgets", "Wallpaper", "Home settings")) { _, which ->
+                when (which) {
+                    0 -> pickWidget(page)
+                    1 -> startSafely(
+                        Intent.createChooser(Intent(Intent.ACTION_SET_WALLPAPER), "Wallpaper"),
+                    )
+                    else -> startSafely(Intent(Settings.ACTION_HOME_SETTINGS))
+                }
+            }
+            .show()
     }
 
     // ------------------------------------------------------------ widget pages
@@ -364,12 +369,16 @@ class HomeActivity : Activity() {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(24), dp(4), dp(24), dp(16))
             setOnLongClickListener {
-                pickWidget(page)
+                it.performHapticFeedback(android.view.HapticFeedbackConstants.LONG_PRESS)
+                showEditMenu(page)
                 true
             }
         }
         col.addView(label("Page ${page + 1} \u00b7 Widgets", 13f, LABEL))
-        col.addView(addWidgetTile(page), linear(h = dp(64), top = dp(12)))
+        col.addView(
+            label("Press and hold to add widgets", 14f, GREY).apply { gravity = Gravity.CENTER },
+            linear(top = dp(24)),
+        )
         pageCols.add(col)
         return ScrollView(this).apply {
             isFillViewport = true
@@ -456,7 +465,7 @@ class HomeActivity : Activity() {
         val hDp = (hPx / resources.displayMetrics.density).toInt()
         host.updateAppWidgetSize(Bundle(), wDp, hDp, wDp, hDp)
         frame.addView(host, FrameLayout.LayoutParams(MATCH, MATCH))
-        col.addView(frame, col.childCount - 1, linear(h = hPx, top = dp(12)))
+        col.addView(frame, if (page > 0) col.childCount - 1 else col.childCount, linear(h = hPx, top = dp(12)))
         widgetFrames[id] = frame
         return true
     }
