@@ -164,7 +164,7 @@ class HomeActivity : Activity() {
         // Soft darkening over the wallpaper so text stays readable but the wallpaper stays visible.
         root.background = GradientDrawable(
             GradientDrawable.Orientation.TOP_BOTTOM,
-            intArrayOf(Color.parseColor("#4D000000"), Color.parseColor("#80000000")),
+            intArrayOf(Color.parseColor("#99000000"), Color.parseColor("#D9000000")),
         )
         rootLayer = root
         homeLayer = buildHome()
