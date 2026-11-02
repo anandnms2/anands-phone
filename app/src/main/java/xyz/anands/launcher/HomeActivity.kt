@@ -2,10 +2,12 @@ package xyz.anands.launcher
 
 import android.app.Activity
 import android.app.AlertDialog
+import android.app.KeyguardManager
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.graphics.BitmapFactory
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
@@ -113,6 +115,9 @@ class HomeActivity : Activity() {
     private val shown = ArrayList<AppEntry>()
     private val iconCache = HashMap<String, Drawable>()
     private var themed = true
+    private lateinit var rootLayer: FrameLayout
+    private var introPending = false
+    private var introShowing = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -133,12 +138,14 @@ class HomeActivity : Activity() {
         })
 
         val root = FrameLayout(this)
+        rootLayer = root
         homeLayer = buildHome()
         drawerLayer = buildDrawer()
         drawerLayer.visibility = View.GONE
         root.addView(homeLayer, FrameLayout.LayoutParams(MATCH, MATCH))
         root.addView(drawerLayer, FrameLayout.LayoutParams(MATCH, MATCH))
         setContentView(root)
+        introPending = bootChanged()
     }
 
     override fun onResume() {
@@ -160,6 +167,34 @@ class HomeActivity : Activity() {
     override fun onBackPressed() {
         // A launcher never exits. Back only closes the drawer.
         if (drawerLayer.visibility == View.VISIBLE) closeDrawer()
+    }
+
+    override fun onWindowFocusChanged(hasFocus: Boolean) {
+        super.onWindowFocusChanged(hasFocus)
+        val keyguard = getSystemService(Context.KEYGUARD_SERVICE) as KeyguardManager
+        if (hasFocus && introPending && !keyguard.isKeyguardLocked) playIntro()
+    }
+
+    /** True once per reboot (and on first install), so the intro plays at the first unlock after boot. */
+    private fun bootChanged(): Boolean {
+        val boot = Settings.Global.getInt(contentResolver, Settings.Global.BOOT_COUNT, -1)
+        return boot != getSharedPreferences("anands", Context.MODE_PRIVATE).getInt("boot", -2)
+    }
+
+    /** Plays the Anands boot animation over the home screen. Tap the logo in the header to replay it. */
+    private fun playIntro() {
+        if (introShowing) return
+        introPending = false
+        introShowing = true
+        val boot = Settings.Global.getInt(contentResolver, Settings.Global.BOOT_COUNT, -1)
+        getSharedPreferences("anands", Context.MODE_PRIVATE).edit().putInt("boot", boot).apply()
+        val logo = BitmapFactory.decodeResource(resources, R.drawable.ic_launcher)
+        var view: BootIntroView? = null
+        view = BootIntroView(this, logo) {
+            rootLayer.removeView(view)
+            introShowing = false
+        }
+        rootLayer.addView(view, FrameLayout.LayoutParams(MATCH, MATCH))
     }
 
     override fun dispatchTouchEvent(ev: MotionEvent): Boolean {
@@ -187,6 +222,7 @@ class HomeActivity : Activity() {
             label("ANANDS OS", 12f, GREY, bold = true).apply { letterSpacing = 0.18f },
             LinearLayout.LayoutParams(WRAP, WRAP).apply { marginStart = dp(10) },
         )
+        header.setOnClickListener { playIntro() }
         col.addView(header)
 
         dateView = label("", 14f, GREY)
