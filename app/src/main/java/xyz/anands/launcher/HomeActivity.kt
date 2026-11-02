@@ -47,12 +47,13 @@ import kotlin.math.abs
 // ---- Anands palette ----
 private val ORANGE = Color.parseColor("#F68B1F")
 private val INK = Color.parseColor("#0B0B0C")
-private val PANEL = Color.parseColor("#D9151517")
+private val PANEL = Color.parseColor("#17171A")
 private val LINE = Color.parseColor("#2A2A2D")
 private val TILE = Color.parseColor("#1A1A1C")
 private val GREY = Color.parseColor("#A1A1A6")
-private val LABEL = Color.parseColor("#C9C9CC")
-private val SCRIM = Color.parseColor("#EB0B0B0C")
+private val LABEL = Color.parseColor("#E4E4E7")
+private val SCRIM = INK
+private val TILE_ORANGE = IconTheme.TILE
 private val WHITE = Color.WHITE
 
 private const val MATCH = ViewGroup.LayoutParams.MATCH_PARENT
@@ -61,17 +62,17 @@ private const val WRAP = ViewGroup.LayoutParams.WRAP_CONTENT
 private const val OWNER_NAME = "Anand"
 
 // ---- Your web apps. Edit this list to add or change shortcuts. ----
-private class Fav(val name: String, val url: String)
+private class Fav(val name: String, val url: String, val glyph: Int)
 
 private val FAVORITES = listOf(
-    Fav("Photos", "https://photos.anands.xyz"),
-    Fav("Files", "https://files.anands.xyz"),
-    Fav("Vault", "https://pass.anands.xyz"),
-    Fav("Cloud", "https://cloud.anands.xyz"),
-    Fav("Desktop", "https://desktop.anands.xyz"),
-    Fav("Remote", "https://remote.anands.xyz"),
-    Fav("Storage", "https://storage.anands.xyz"),
-    Fav("Status", "https://status.anands.xyz"),
+    Fav("Photos", "https://photos.anands.xyz", R.drawable.g_photos),
+    Fav("Files", "https://files.anands.xyz", R.drawable.g_files),
+    Fav("Vault", "https://pass.anands.xyz", R.drawable.g_vault),
+    Fav("Cloud", "https://cloud.anands.xyz", R.drawable.g_cloud),
+    Fav("Desktop", "https://desktop.anands.xyz", R.drawable.g_desktop),
+    Fav("Remote", "https://remote.anands.xyz", R.drawable.g_remote),
+    Fav("Storage", "https://storage.anands.xyz", R.drawable.g_storage),
+    Fav("Status", "https://status.anands.xyz", R.drawable.g_status),
 )
 
 private class AppEntry(
@@ -83,7 +84,7 @@ private class AppEntry(
 
 /** Four rounded squares, the "all apps" glyph. */
 private class GridGlyph(context: Context) : View(context) {
-    private val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = INK }
+    private val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = TILE_ORANGE }
 
     override fun onDraw(canvas: Canvas) {
         val s = width * 0.18f
@@ -207,7 +208,8 @@ class HomeActivity : Activity() {
     private fun buildHome(): View {
         val col = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(dp(20), dp(20), dp(20), dp(16))
+            setBackgroundColor(INK)
+            setPadding(dp(24), dp(36), dp(24), dp(28))
         }
 
         val header = LinearLayout(this).apply {
@@ -216,29 +218,23 @@ class HomeActivity : Activity() {
         }
         header.addView(
             ImageView(this).apply { setImageResource(R.drawable.ic_launcher) },
-            LinearLayout.LayoutParams(dp(28), dp(28)),
-        )
-        header.addView(
-            label("ANANDS OS", 12f, GREY, bold = true).apply { letterSpacing = 0.18f },
-            LinearLayout.LayoutParams(WRAP, WRAP).apply { marginStart = dp(10) },
+            LinearLayout.LayoutParams(dp(32), dp(32)),
         )
         header.setOnClickListener { playIntro() }
         col.addView(header)
 
         dateView = label("", 14f, GREY)
-        greetingView = label("", 28f, WHITE, bold = true)
-        col.addView(dateView, linear(top = dp(18)))
-        col.addView(greetingView, linear(top = dp(2)))
+        greetingView = label("", 34f, WHITE, bold = true)
+        col.addView(dateView, linear(top = dp(56)))
+        col.addView(greetingView, linear(top = dp(6)))
 
         val search = label("Search apps", 15f, GREY).apply {
             gravity = Gravity.CENTER_VERTICAL
             setPadding(dp(20), 0, dp(20), 0)
-            background = rounded(PANEL, 26, LINE)
+            background = rounded(PANEL, 26)
             setOnClickListener { openDrawer(true) }
         }
-        col.addView(search, linear(h = dp(52), top = dp(16)))
-
-        col.addView(label("YOUR APPS", 11f, GREY, bold = true).apply { letterSpacing = 0.14f }, linear(top = dp(24)))
+        col.addView(search, linear(h = dp(52), top = dp(28)))
 
         for (chunk in FAVORITES.chunked(4)) {
             val row = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
@@ -248,12 +244,12 @@ class HomeActivity : Activity() {
                     gravity = Gravity.CENTER_HORIZONTAL
                     setOnClickListener { openUrl(fav.url) }
                 }
-                cell.addView(letterTile(fav.name.first().toString(), TILE, ORANGE), LinearLayout.LayoutParams(dp(56), dp(56)))
-                cell.addView(label(fav.name, 11f, LABEL).apply { gravity = Gravity.CENTER }, linear(top = dp(6)))
+                cell.addView(glyphTile(fav.glyph), LinearLayout.LayoutParams(dp(64), dp(64)))
+                cell.addView(label(fav.name, 12f, LABEL).apply { gravity = Gravity.CENTER }, linear(top = dp(6)))
                 row.addView(cell, LinearLayout.LayoutParams(0, WRAP, 1f))
             }
             repeat(4 - chunk.size) { row.addView(View(this), LinearLayout.LayoutParams(0, 1, 1f)) }
-            col.addView(row, linear(top = dp(14)))
+            col.addView(row, linear(top = dp(24)))
         }
 
         col.addView(View(this), LinearLayout.LayoutParams(MATCH, 0, 1f))
@@ -264,15 +260,14 @@ class HomeActivity : Activity() {
     private fun buildDock(): View {
         val dock = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
-            background = rounded(PANEL, 30, LINE)
-            setPadding(dp(12), dp(12), dp(12), dp(12))
+            setPadding(dp(4), dp(4), dp(4), dp(4))
         }
         val tiles = listOf(
-            dockApp(Intent(Intent.ACTION_DIAL), "P"),
-            dockApp(Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_APP_MESSAGING), "M"),
-            dockApp(Intent(MediaStore.INTENT_ACTION_STILL_IMAGE_CAMERA), "C"),
+            dockApp(Intent(Intent.ACTION_DIAL), R.drawable.g_phone),
+            dockApp(Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_APP_MESSAGING), R.drawable.g_messages),
+            dockApp(Intent(MediaStore.INTENT_ACTION_STILL_IMAGE_CAMERA), R.drawable.g_camera),
             FrameLayout(this).apply {
-                background = rounded(ORANGE, 18)
+                background = rounded(WHITE, 20)
                 addView(GridGlyph(context), FrameLayout.LayoutParams(MATCH, MATCH))
                 setOnClickListener { openDrawer(false) }
                 contentDescription = "All apps"
@@ -280,27 +275,17 @@ class HomeActivity : Activity() {
         )
         for (tile in tiles) {
             val cell = FrameLayout(this)
-            cell.addView(tile, FrameLayout.LayoutParams(dp(56), dp(56), Gravity.CENTER))
+            cell.addView(tile, FrameLayout.LayoutParams(dp(60), dp(60), Gravity.CENTER))
             dock.addView(cell, LinearLayout.LayoutParams(0, WRAP, 1f))
         }
         return dock
     }
 
-    /** A dock slot that shows the real icon of whichever app handles [intent]. */
-    @Suppress("DEPRECATION")
-    private fun dockApp(intent: Intent, fallback: String): View {
-        val info = packageManager.resolveActivity(intent, PackageManager.MATCH_DEFAULT_ONLY)
-        val view: View = if (info != null) {
-            ImageView(this).apply {
-                setImageDrawable(iconFor("dock/${info.activityInfo.packageName}") { info.loadIcon(packageManager) })
-                contentDescription = info.loadLabel(packageManager)
-            }
-        } else {
-            letterTile(fallback, TILE, WHITE)
+    /** A dock slot: Anands glyph tile that opens whichever app handles [intent]. */
+    private fun dockApp(intent: Intent, glyph: Int): View =
+        glyphTile(glyph).apply {
+            setOnClickListener { startSafely(intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }
         }
-        view.setOnClickListener { startSafely(intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }
-        return view
-    }
 
     private fun updateGreeting() {
         val hour = Calendar.getInstance().get(Calendar.HOUR_OF_DAY)
@@ -319,7 +304,7 @@ class HomeActivity : Activity() {
         val col = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setBackgroundColor(SCRIM)
-            setPadding(dp(16), dp(36), dp(16), 0)
+            setPadding(dp(24), dp(36), dp(24), 0)
             isClickable = true
         }
 
@@ -329,7 +314,7 @@ class HomeActivity : Activity() {
         }
         top.addView(
             ImageView(this).apply { setImageResource(R.drawable.ic_launcher) },
-            LinearLayout.LayoutParams(dp(28), dp(28)),
+            LinearLayout.LayoutParams(dp(32), dp(32)),
         )
         top.addView(
             label("All apps", 20f, WHITE, bold = true).apply {
@@ -344,7 +329,7 @@ class HomeActivity : Activity() {
         countView = label("", 13f, GREY)
         top.addView(countView)
         top.addView(
-            label("Close", 14f, ORANGE, bold = true).apply {
+            label("Done", 15f, ORANGE, bold = true).apply {
                 setPadding(dp(16), dp(10), dp(4), dp(10))
                 setOnClickListener { closeDrawer() }
             },
@@ -358,7 +343,7 @@ class HomeActivity : Activity() {
             textSize = 15f
             setSingleLine()
             imeOptions = EditorInfo.IME_ACTION_GO
-            background = rounded(Color.parseColor("#17171A"), 24, LINE)
+            background = rounded(PANEL, 24)
             setPadding(dp(18), 0, dp(18), 0)
             addTextChangedListener(object : TextWatcher {
                 override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
@@ -379,7 +364,7 @@ class HomeActivity : Activity() {
         adapter = AppAdapter()
         val grid = GridView(this).apply {
             numColumns = 4
-            verticalSpacing = dp(14)
+            verticalSpacing = dp(22)
             stretchMode = GridView.STRETCH_COLUMN_WIDTH
             selector = ColorDrawable(Color.TRANSPARENT)
             clipToPadding = false
@@ -482,9 +467,9 @@ class HomeActivity : Activity() {
             val cell = (convertView as? LinearLayout) ?: LinearLayout(this@HomeActivity).apply {
                 orientation = LinearLayout.VERTICAL
                 gravity = Gravity.CENTER_HORIZONTAL
-                addView(ImageView(context), LinearLayout.LayoutParams(dp(52), dp(52)))
+                addView(ImageView(context), LinearLayout.LayoutParams(dp(60), dp(60)))
                 addView(
-                    label("", 11f, LABEL).apply {
+                    label("", 12f, LABEL).apply {
                         gravity = Gravity.CENTER
                         maxLines = 1
                         ellipsize = TextUtils.TruncateAt.END
@@ -537,11 +522,12 @@ class HomeActivity : Activity() {
         if (stroke != 0) setStroke(dp(1), stroke)
     }
 
-    private fun letterTile(letter: String, fill: Int, textColor: Int): View = FrameLayout(this).apply {
-        background = rounded(fill, 18, LINE)
+    /** Orange rounded tile with a white line glyph, the Anands icon style. */
+    private fun glyphTile(glyph: Int): View = FrameLayout(this).apply {
+        background = rounded(TILE_ORANGE, 20)
         addView(
-            label(letter, 22f, textColor, bold = true).apply { gravity = Gravity.CENTER },
-            FrameLayout.LayoutParams(MATCH, MATCH),
+            ImageView(context).apply { setImageResource(glyph) },
+            FrameLayout.LayoutParams(dp(28), dp(28), Gravity.CENTER),
         )
     }
 
